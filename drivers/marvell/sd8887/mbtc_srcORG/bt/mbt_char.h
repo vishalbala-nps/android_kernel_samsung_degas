@@ -2,7 +2,7 @@
   *
   * @brief This file contains mbtchar driver specific defines etc
   *
-  * Copyright (C) 2010-2018, Marvell International Ltd.
+  * Copyright (C) 2010-2015, Marvell International Ltd.
   *
   * This software file (the "File") is distributed by Marvell International
   * Ltd. under the terms of the GNU General Public License Version 2, June 1991
@@ -31,8 +31,10 @@
 #define MBTCHAR_MAJOR_NUM            (0)
 
 /** Interface specific macros */
+#define MBTCHAR_MINOR_BASE           (0)
 #define FMCHAR_MINOR_BASE            (10)
 #define NFCCHAR_MINOR_BASE           (20)
+#define DEBUGCHAR_MINOR_BASE         (30)
 
 /** Declaration of char_dev struct */
 struct char_dev {

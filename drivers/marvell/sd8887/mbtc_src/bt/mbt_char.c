@@ -2,7 +2,7 @@
   *
   * @brief This file contains the char device function calls
   *
-  * Copyright (C) 2010-2015, Marvell International Ltd.
+  * Copyright (C) 2010-2018, Marvell International Ltd.
   *
   * This software file (the "File") is distributed by Marvell International
   * Ltd. under the terms of the GNU General Public License Version 2, June 1991
@@ -24,6 +24,9 @@
 #include <linux/mount.h>
 
 #include "bt_drv.h"
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 11, 0)
+#include <linux/sched/signal.h>
+#endif
 #include "mbt_char.h"
 
 static LIST_HEAD(char_dev_list);
@@ -32,6 +35,13 @@ static DEFINE_SPINLOCK(char_dev_list_lock);
 
 static int mbtchar_major = MBTCHAR_MAJOR_NUM;
 
+/**
+ *	@brief  Gets char device structure
+ *
+ *	@param dev		A pointer to char_dev
+ *
+ *	@return			kobject structure
+ */
 struct kobject *
 chardev_get(struct char_dev *dev)
 {
@@ -47,6 +57,13 @@ chardev_get(struct char_dev *dev)
 	return kobj;
 }
 
+/**
+ *	@brief  Prints char device structure
+ *
+ *	@param dev		A pointer to char_dev
+ *
+ *	@return			N/A
+ */
 void
 chardev_put(struct char_dev *dev)
 {
@@ -88,7 +105,11 @@ mbtchar_chmod(char *name, mode_t mode)
 	} while (ret);
 	inode = path.dentry->d_inode;
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,7,0)
 	mutex_lock(&inode->i_mutex);
+#else
+	inode_lock(inode);
+#endif
 	ret = mnt_want_write(path.mnt);
 	if (ret)
 		goto out_unlock;
@@ -103,14 +124,22 @@ mbtchar_chmod(char *name, mode_t mode)
 		ret = inode_setattr(inode, &newattrs);
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,7,0)
 	mutex_unlock(&inode->i_mutex);
+#else
+	inode_unlock(inode);
+#endif
 	mnt_drop_write(path.mnt);
 
 	path_put(&path);
 	LEAVE();
 	return ret;
 out_unlock:
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,7,0)
 	mutex_unlock(&inode->i_mutex);
+#else
+	inode_unlock(inode);
+#endif
 	mnt_drop_write(path.mnt);
 	path_put(&path);
 	return ret;
@@ -145,7 +174,11 @@ mbtchar_chown(char *name, uid_t user, gid_t group)
 		}
 	} while (ret);
 	inode = path.dentry->d_inode;
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,7,0)
 	mutex_lock(&inode->i_mutex);
+#else
+	inode_lock(inode);
+#endif
 	ret = mnt_want_write(path.mnt);
 	if (ret)
 		goto out_unlock;
@@ -178,14 +211,22 @@ mbtchar_chown(char *name, uid_t user, gid_t group)
 		ret = inode_setattr(inode, &newattrs);
 #endif
 
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,7,0)
 	mutex_unlock(&inode->i_mutex);
+#else
+	inode_unlock(inode);
+#endif
 	mnt_drop_write(path.mnt);
 
 	path_put(&path);
 	LEAVE();
 	return ret;
 out_unlock:
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,7,0)
 	mutex_unlock(&inode->i_mutex);
+#else
+	inode_unlock(inode);
+#endif
 	mnt_drop_write(path.mnt);
 	path_put(&path);
 	return ret;
@@ -387,6 +428,7 @@ char_ioctl(struct file *filp, unsigned int cmd, void *arg)
 		m_dev->query(m_dev, arg);
 		break;
 	default:
+		m_dev->ioctl(m_dev, cmd, arg);
 		break;
 	}
 	LEAVE();
@@ -498,10 +540,12 @@ chardev_open(struct inode *inode, struct file *filp)
 	filp->private_data = dev;	/* for other methods */
 	m_dev = dev->m_dev;
 	mdev_req_lock(m_dev);
+#if LINUX_VERSION_CODE > KERNEL_VERSION(3, 7, 0)
 	if (test_bit(HCI_UP, &m_dev->flags)) {
-		ret = -EALREADY;
+		atomic_inc(&m_dev->extra_cnt);
 		goto done;
 	}
+#endif
 	if (m_dev->open(m_dev)) {
 		ret = -EIO;
 		goto done;
@@ -535,6 +579,12 @@ chardev_release(struct inode *inode, struct file *filp)
 		return -ENXIO;
 	}
 	m_dev = dev->m_dev;
+#if LINUX_VERSION_CODE > KERNEL_VERSION(3, 7, 0)
+	if (m_dev && (atomic_dec_if_positive(&m_dev->extra_cnt) >= 0)) {
+		LEAVE();
+		return ret;
+	}
+#endif
 	if (m_dev)
 		ret = dev->m_dev->close(dev->m_dev);
 	filp->private_data = NULL;
@@ -642,32 +692,8 @@ register_char_dev(struct char_dev *dev, struct class *char_class,
 		device_create(char_class, NULL,
 			      MKDEV(mbtchar_major, dev->minor), NULL, dev_name);
 	}
-	if (dev->dev_type == FM_TYPE) {
-		device_create(char_class, NULL,
-			      MKDEV(mbtchar_major, dev->minor), NULL, dev_name);
-	}
-	if (dev->dev_type == NFC_TYPE) {
-		device_create(char_class, NULL,
-			      MKDEV(mbtchar_major, dev->minor), NULL, dev_name);
-	}
-	if (dev->dev_type == DEBUG_TYPE) {
-		device_create(char_class, NULL,
-			      MKDEV(mbtchar_major, dev->minor), NULL, dev_name);
-	}
 #else
 	if ((dev->dev_type == BT_TYPE) || (dev->dev_type == BT_AMP_TYPE)) {
-		device_create(char_class, NULL,
-			      MKDEV(mbtchar_major, dev->minor), dev_name);
-	}
-	if (dev->dev_type == FM_TYPE) {
-		device_create(char_class, NULL,
-			      MKDEV(mbtchar_major, dev->minor), dev_name);
-	}
-	if (dev->dev_type == NFC_TYPE) {
-		device_create(char_class, NULL,
-			      MKDEV(mbtchar_major, dev->minor), dev_name);
-	}
-	if (dev->dev_type == DEBUG_TYPE) {
 		device_create(char_class, NULL,
 			      MKDEV(mbtchar_major, dev->minor), dev_name);
 	}

@@ -3,7 +3,7 @@
   * @brief This file contains the init functions for BlueTooth
   * driver.
   *
-  * Copyright (C) 2011-2015, Marvell International Ltd.
+  * Copyright (C) 2011-2018, Marvell International Ltd.
   *
   * This software file (the "File") is distributed by Marvell International
   * Ltd. under the terms of the GNU General Public License Version 2, June 1991
@@ -279,7 +279,8 @@ parse_cfg_get_line(u8 *data, u32 size, u8 *line_pos)
 	src = data + pos;
 	dest = line_pos;
 
-	while (pos < size && *src != '\x0A' && *src != '\0') {
+	while ((dest - line_pos < MAX_LINE_LEN - 1) && pos < size &&
+	       *src != '\x0A' && *src != '\0') {
 		if (*src != ' ' && *src != '\t')	/* parse space */
 			*dest++ = *src++;
 		else
@@ -348,25 +349,20 @@ bt_process_init_cfg(bt_private *priv, u8 *data, u32 size)
 				strncpy(dev_name, (const char *)intf_s + 1,
 					intf_e - intf_s - 1);
 				dev_name[intf_e - intf_s - 1] = '\0';
-				if (strcmp
-				    (dev_name,
-				     priv->bt_dev.m_dev[BT_SEQ].name) == 0) {
-					/* found hci device */
-					strncpy((char *)bt_addr,
-						(const char *)intf_e + 1,
-						MAX_MAC_ADDR_LEN - 1);
-					bt_addr[MAX_MAC_ADDR_LEN - 1] = '\0';
-					/* Convert MAC format */
-					bt_mac2u8(bt_mac, (char *)bt_addr);
-					PRINTM(CMD,
-					       "HCI: %s new BT Address " MACSTR
-					       "\n", dev_name, MAC2STR(bt_mac));
-					if (BT_STATUS_SUCCESS !=
-					    bt_set_mac_address(priv, bt_mac)) {
-						PRINTM(FATAL,
-						       "BT: Fail to set mac address\n");
-						goto done;
-					}
+				strncpy((char *)bt_addr,
+					(const char *)intf_e + 1,
+					MAX_MAC_ADDR_LEN - 1);
+				bt_addr[MAX_MAC_ADDR_LEN - 1] = '\0';
+				/* Convert MAC format */
+				bt_mac2u8(bt_mac, (char *)bt_addr);
+				PRINTM(CMD,
+				       "HCI: %s new BT Address " MACSTR "\n",
+				       dev_name, MAC2STR(bt_mac));
+				if (BT_STATUS_SUCCESS !=
+				    bt_set_mac_address(priv, bt_mac)) {
+					PRINTM(FATAL,
+					       "BT: Fail to set mac address\n");
+					goto done;
 				}
 			} else {
 				PRINTM(ERROR,
@@ -540,6 +536,7 @@ bt_process_cal_cfg(bt_private *priv, u8 *data, u32 size, char *mac)
 	u8 *mac_data = NULL;
 	u32 cal_data_len;
 	int ret = BT_STATUS_FAILURE;
+	u8 *pcal_data = cal_data;
 
 	memset(bt_mac, 0, sizeof(bt_mac));
 	cal_data_len = sizeof(cal_data);
@@ -554,7 +551,7 @@ bt_process_cal_cfg(bt_private *priv, u8 *data, u32 size, char *mac)
 		       MAC2STR(bt_mac));
 		mac_data = bt_mac;
 	}
-	if (BT_STATUS_SUCCESS != bt_load_cal_data(priv, cal_data, mac_data)) {
+	if (BT_STATUS_SUCCESS != bt_load_cal_data(priv, pcal_data, mac_data)) {
 		PRINTM(FATAL, "BT: Fail to load calibrate data\n");
 		goto done;
 	}

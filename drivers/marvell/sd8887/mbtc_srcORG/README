@@ -1,7 +1,7 @@
 ===============================================================================
 			U S E R  M A N U A L
 
- Copyright (C) 2003-2018, Marvell International Ltd.
+ Copyright (C) 2003-2015, Marvell International Ltd.
 
  This software file (the "File") is distributed by Marvell International
  Ltd. under the terms of the GNU General Public License Version 2, June 1991
@@ -20,9 +20,9 @@
 
 1) FOR DRIVER BUILD
 
-	Goto source code directory mbt_src/.
+	Goto source code directory mbtc_src/.
 		make [clean] build
-	The driver binary can be found in ../bin_xxxx_bt directory.
+	The driver binary can be found in ../bin_xxxx_btchar directory.
 
 2) FOR DRIVER INSTALL
 
@@ -31,19 +31,16 @@
 	b) Install bluetooth driver,
 		insmod bt8787.ko | mbt8787.ko | ... [fw_name=mrvl/sd8xxx.bin]
 	c) Uninstall bluetooth driver,
-		hciconfig hciX down
 		rmmod bt8xxx | mbt8xxx
 
 	There are some other parameters for debugging purpose etc. Use modinfo to check details.
-	  The bit settings of drv_mode are,
-		Bit 0: BT/AMP/BLE
-	  mbt_drvdbg=<bit mask of driver debug message control>
+	  drvdbg=<bit mask of driver debug message control>
 	  psmode=1|0 <enable PS mode (default) | disable PS mode>
-	  dts_enable=1|0 <Disable DTS | Enable DTS (default)>
 	  bt_name=<BT interface name>
+	  fm_name=<FM interface name>
+	  nfc_name=<NFC interface name>
 	  mbt_pm_keep_power=1|0 <PM keep power in suspend (default) | PM no power in suspend>
-	  fw=0|other <Skip firmware download | Download firmware (default)>
-	  bt_req_fw_nowait=0|1 <use request_firmware API (default) | use request_firmware_nowait API>
+	  req_fw_nowait=0|1 <use request_firmware API (default) | use request_firmware_nowait API>
 	  init_cfg=<init config (MAC addresses, registers etc.) file name>
 		e.g. copy bt_init_cfg.conf to firmware directory, init_cfg=mrvl/bt_init_cfg.conf
       bt_mac=xx:xx:xx:xx:xx:xx <override the MAC address (in hex)>
@@ -51,21 +48,20 @@
 		e.g. copy bt_cal_data.conf to firmware directory, cal_cfg=mrvl/bt_cal_data.conf
       cal_cfg_ext=<CAL data config file name>
 		e.g. copy cal_data.conf to firmware directory, cal_cfg_ext=mrvl/cal_data.conf
-	  bt_fw_serial=0|1 <Support parallel download FW | Support serial download FW (default)>
 
 	Note: On some platforms (e.g. PXA910/920) double quotation marks ("") need to used
 	for module parameters.
-		insmod bt8xxx.ko "<para1> <para2> ..."
+		insmod mbt8xxx.ko "<para1> <para2> ..."
 
-3) cat /proc/mbt/hcix/status
+3) cat /proc/mbt/mbtcharx/status
 	This command is used to get driver status.
 
-4) cat /proc/mbt/hcix/config
+4) cat /proc/mbt/mbtcharx/config
 	This command is used to get the current driver settings.
 
 5) proc commands to config bluetooth parameters
 
-mbt_drvdbg=[n]
+drvdbg=[n]
 	This command is used to set the bit mask of driver debug message control.
 
 	bit 0:  MSG  		PRINTM(MSG,...)
@@ -84,7 +80,7 @@ mbt_drvdbg=[n]
 	bit 30: INFO 		PRINTM(INFO,...)
 
 	Usage:
-		echo "drvdbg=0x7" > /proc/mbt/hcix/config		#enable MSG,FATAL,ERROR messages
+		echo "drvdbg=0x7" > /proc/mbt/mbtcharx/config		#enable MSG,FATAL,ERROR messages
 
 gpio_gap=[n]
 	This command is used to configure the host sleep parameters.
@@ -97,11 +93,11 @@ gpio_gap=[n]
 		or 0xff for special setting when GPIO is used to wakeup host.
 
 	Usage:
-		echo "gpio_gap=0xff80" > /proc/mbt/hcix/config   	# use Interface (e.g. SDIO)
-		echo "hscfgcmd=1" > /proc/mbt/hcix/config		# gap = 0x80
+		echo "gpio_gap=0xff80" > /proc/mbt/mbtcharx/config   	# use Interface (e.g. SDIO)
+		echo "hscfgcmd=1" > /proc/mbt/mbtcharx/config		# gap = 0x80
 
-		echo "gpio_gap=0x03ff" > /proc/mbt/hcix/config   	# use gpio 3
-		echo "hscfgcmd=1" > /proc/mbt/hcix/config		# and special host sleep mode
+		echo "gpio_gap=0x03ff" > /proc/mbt/mbtcharx/config   	# use gpio 3
+		echo "hscfgcmd=1" > /proc/mbt/mbtcharx/config		# and special host sleep mode
 
 psmode=[n]
 	This command is used to enable/disable auto sleep mode
@@ -111,12 +107,12 @@ psmode=[n]
 			0 	-- Disable auto sleep mode
 
 	Usage:
-		echo "psmode=1" > /proc/mbt/hcix/config			#enable power save mode
-		echo "idle_timeout=0x0100" > /proc/mbt/hcix/config		#configure idle, timeout value in ms
-		echo "pscmd=1" > /proc/mbt/hcix/config
+		echo "psmode=1" > /proc/mbt/mbtcharx/config			#enable power save mode
+		echo "idle_timeout=0x0100" > /proc/mbt/mbtcharx/config		#configure idle, timeout value in ms
+		echo "pscmd=1" > /proc/mbt/mbtcharx/config
 
-		echo "psmode=0" > /proc/mbt/hcix/config			#disable power save mode
-		echo "pscmd=1" > /proc/mbt/hcix/config
+		echo "psmode=0" > /proc/mbt/mbtcharx/config			#disable power save mode
+		echo "pscmd=1" > /proc/mbt/mbtcharx/config
 
 sdio_pull_cfg=[n]
 	This command is used to configure the delay values for pull up and pull down the SDIO lines.
@@ -127,29 +123,17 @@ sdio_pull_cfg=[n]
 	        0xffff disables PullUp and PullDown in BT controller
 
 	Usage:
-		echo "sdio_pull_cfg=0x00020002" > /proc/mbt/hcix/config   	# Enable sdio pull control
-		echo "sdio_pull_ctrl=1" > /proc/mbt/hcix/config             # configure sdio pull up delay to 2 microseconds
-                                                                    # configure sdio pull down delay to 2 microseconds
+		echo "sdio_pull_cfg=0x00020002" > /proc/mbt/mbtcharx/config   	# Enable sdio pull control
+		echo "sdio_pull_ctrl=1" > /proc/mbt/mbtcharx/config             # configure sdio pull up delay to 2 microseconds
+                                                                        # configure sdio pull down delay to 2 microseconds
 
-		echo "sdio_pull_cfg=0xffffffff" > /proc/mbt/hcix/config   	# Disable sdio pull control
-		echo "sdio_pull_ctrl=1" > /proc/mbt/hcix/config
+		echo "sdio_pull_cfg=0xffffffff" > /proc/mbt/mbtcharx/config   	# Disable sdio pull control
+		echo "sdio_pull_ctrl=1" > /proc/mbt/mbtcharx/config
 
-6) Use hcitool to issue raw hci command, refer to hcitool manual
-
-	Usage: Hcitool cmd <ogf> <ocf> [Parameters]
-
-	1.Interface Control Command
-	  hcitool cmd 0x3f 0x5b 0xf5 0x01 0x00    --Enable All interface
-	  hcitool cmd 0x3f 0x5b 0xf5 0x01 0x01    --Enable Wlan interface
-	  hcitool cmd 0x3f 0x5b 0xf5 0x01 0x02    --Enable BT interface
-	  hcitool cmd 0x3f 0x5b 0xf5 0x00 0x00    --Disable All interface
-	  hcitool cmd 0x3f 0x5b 0xf5 0x00 0x01    --Disable Wlan interface
-	  hcitool cmd 0x3f 0x5b 0xf5 0x00 0x02    --Disable BT interface
-
-7) cat /proc/mbt/hcix/debug
+6) cat /proc/mbt/mbtcharx/debug
 	This command is used to get driver debug parameters.
 
-8) proc command to config debug parameters
+7) proc command to config debug parameters
 
 sdcmd52rw=<func> <reg> [data]
 	This command is used to read/write a controller register in
@@ -164,19 +148,29 @@ sdcmd52rw=<func> <reg> [data]
 	registers (0xf0 -0xff) are permiited.
 
 	Usage:
-		echo "sdcmd52rw= 2 3 0xf" > /proc/mbt/hcix/debug	# write 0xf to func 2 address 3
-		echo "sdcmd52rw= 0 4" > /proc/mbt/hcix/debug    	# read func 0 address 4
+		echo "sdcmd52rw= 2 3 0xf" > /proc/mbt/mbtcharx/debug	# write 0xf to func 2 address 3
+		echo "sdcmd52rw= 0 4" > /proc/mbt/mbtcharx/debug    	# read func 0 address 4
 
 Issue debug_dump command through proc.
 	Usage:
-		echo "debug_dump" > /proc/mbt/hcix/debug		# dump driver internal debug status.
+		echo "debug_dump" > /proc/mbt/mbtcharx/debug		# dump driver internal debug status.
 	Use dmesg or cat /var/log/debug to check driver debug messages.
 
 proc command to enable BT test mode
     Usage:
-        echo "test_mode=1" > /proc/mbt/hcix/config       #enable BT test mode
+        echo "test_mode=1" > /proc/mbt/mbtcharx/config   #enable BT test mode
 
+FOR FW RELOAD
+    a) Enable parallel firmware download in driver parameter
+       insmod bt8xxx.ko fw_serail=0
 
+    b) default fw name for parallel firmware download
+       sd8887_bt_a2.bin
+
+    c) Trigger FW reload
+	echo "fw_reload" > /proc/mbt/mbtcharx/debug		# start fw reload.
+
+    (Note: This feature only works on CAC-A2 board which supports parallel fw download)
 
 ==============================================================================
 			U S E R  M A N U A L  F O R  F M A P P

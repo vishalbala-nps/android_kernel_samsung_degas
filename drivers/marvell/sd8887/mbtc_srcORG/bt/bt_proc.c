@@ -2,7 +2,7 @@
   *
   * @brief This file handle the functions for proc files
   *
-  * Copyright (C) 2007-2018, Marvell International Ltd.
+  * Copyright (C) 2007-2015, Marvell International Ltd.
   *
   * This software file (the "File") is distributed by Marvell International
   * Ltd. under the terms of the GNU General Public License Version 2, June 1991
@@ -37,9 +37,9 @@
 static struct proc_dir_entry *proc_mbt;
 
 #define     CMD52_STR_LEN   50
+static bt_private *bpriv;
 static char cmd52_string[CMD52_STR_LEN];
 
-/** proc data structure */
 struct proc_data {
 	/** Read length */
 	int rdlen;
@@ -51,8 +51,6 @@ struct proc_data {
 	int maxwrlen;
 	/** Write buffer */
 	char *wrbuf;
-	/** Private structure */
-	struct _bt_private *pbt;
 	void (*on_close) (struct inode *, struct file *);
 };
 
@@ -334,15 +332,18 @@ proc_write(struct file *file,
 		len = pdata->maxwrlen - pos;
 	if (copy_from_user(pdata->wrbuf + pos, buffer, len))
 		return -EFAULT;
-	if (!strncmp(pdata->wrbuf + pos, "sdcmd52rw=", strlen("sdcmd52rw="))) {
-		parse_cmd52_string(pdata->wrbuf + pos, len, &func, &reg, &val);
-		sd_write_cmd52_val(pdata->pbt, func, reg, val);
+	if (!strncmp(buffer, "sdcmd52rw=", strlen("sdcmd52rw="))) {
+		parse_cmd52_string(buffer, len, &func, &reg, &val);
+		sd_write_cmd52_val(bpriv, func, reg, val);
 	}
-	if (!strncmp(pdata->wrbuf + pos, "debug_dump", strlen("debug_dump"))) {
-		bt_dump_sdio_regs(pdata->pbt);
-		bt_dump_firmware_info_v2(pdata->pbt);
+	if (!strncmp(buffer, "debug_dump", strlen("debug_dump"))) {
+		bt_dump_sdio_regs(bpriv);
+		bt_dump_firmware_info_v2(bpriv);
 	}
-
+	if (!strncmp(buffer, "fw_reload", strlen("fw_reload"))) {
+		PRINTM(MSG, "Request fw_reload...\n");
+		bt_request_fw_reload(bpriv);
+	}
 	if (pos + len > pdata->wrlen)
 		pdata->wrlen = len + file->f_pos;
 	*offset = pos + len;
@@ -432,7 +433,6 @@ proc_open(struct inode *inode, struct file *file)
 		return -ENOMEM;
 	}
 	pdata = (struct proc_data *)file->private_data;
-	pdata->pbt = priv->pbt;
 	pdata->rdbuf = kmalloc(priv->bufsize, GFP_KERNEL);
 	if (pdata->rdbuf == NULL) {
 		PRINTM(ERROR, "BT: Can not alloc mem for rdbuf\n");
@@ -467,8 +467,8 @@ proc_open(struct inode *inode, struct file *file)
 			if (!strncmp
 			    (priv->pdata[i].name, "sdcmd52rw",
 			     strlen("sdcmd52rw"))) {
-				sd_read_cmd52_val(priv->pbt);
-				form_cmd52_string(priv->pbt);
+				sd_read_cmd52_val(bpriv);
+				form_cmd52_string(bpriv);
 			}
 			p += sprintf(p, "%s=%s\n", priv->pdata[i].name,
 				     (char *)priv->pdata[i].addr);
@@ -479,14 +479,12 @@ proc_open(struct inode *inode, struct file *file)
 	return BT_STATUS_SUCCESS;
 }
 
-/** Proc read ops */
 static const struct file_operations proc_read_ops = {
 	.read = proc_read,
 	.open = proc_open,
 	.release = proc_close
 };
 
-/** Proc Read-Write ops */
 static const struct file_operations proc_rw_ops = {
 	.read = proc_read,
 	.write = proc_write,
@@ -510,135 +508,6 @@ static struct proc_private_data proc_files[] = {
 };
 
 /**
- *  @brief Proc read function for histogram
- *
- *  @param sfp     pointer to seq_file structure
- *  @param data
- *
- *  @return        Number of output data or MLAN_STATUS_FAILURE
- */
-static int
-bt_histogram_read(struct seq_file *sfp, void *data)
-{
-	bt_hist_proc_data *pdata = (bt_hist_proc_data *) sfp->private;
-	bt_private *priv = (bt_private *)pdata->pbt;
-	u8 ant_num;
-	int i, j;
-
-	ENTER();
-	if (!priv) {
-		LEAVE();
-		return -EFAULT;
-	}
-	bt_get_histogram(priv);
-	ant_num = priv->hist_data_len / sizeof(bt_histogram_data);
-	seq_printf(sfp, "BT histogram:\n");
-	seq_printf(sfp, "antenna: 0=2.4G antenna a,  1=2.4G antenna b\n\n");
-	if (ant_num < 1) {
-		seq_printf(sfp, "no histogram data from FW\n");
-		LEAVE();
-		return 0;
-	}
-	for (i = 0; i < ant_num; i++) {
-		if (pdata->antenna != priv->hist_data[i].antenna)
-			continue;
-		seq_printf(sfp, "antenna %d\n", priv->hist_data[i].antenna);
-		switch (priv->hist_data[i].powerclass) {
-		case 2:
-			seq_printf(sfp, "Power class=1.5\n");
-			break;
-		case 5:
-			seq_printf(sfp, "Power class=2\n");
-			break;
-		case 6:
-			seq_printf(sfp, "Power class=1\n");
-			break;
-		default:
-			seq_printf(sfp, "Power class=%d\n",
-				   priv->hist_data[i].powerclass);
-			break;
-		}
-		for (j = 0; j < (MAX_BT_LINK + MAX_BLE_LINK); j++) {
-			switch (priv->hist_data[i].link[j].txrxrate) {
-			case BDR_RATE_1M:
-				seq_printf(sfp,
-					   "BT link[%d]: TxPower=%d dBm, TxRx Rate=BDR(1 mbps), RSSI=%d dBm\n",
-					   j + 1,
-					   priv->hist_data[i].link[j].txpower,
-					   priv->hist_data[i].link[j].rssi);
-				break;
-			case EDR_RATE_2_3M:
-				seq_printf(sfp,
-					   "BT link[%d]: TxPower=%d dBm, TxRx Rate=EDR(2/3 mbps), RSSI=%d dBm\n",
-					   j + 1,
-					   priv->hist_data[i].link[j].txpower,
-					   priv->hist_data[i].link[j].rssi);
-				break;
-			case BLE_RATE_1M:
-				seq_printf(sfp,
-					   "BLE link[%d]: TxPower=%d dBm, TxRx Rate=BLE(1 mbps), RSSI=%d dBm\n",
-					   j - MAX_BT_LINK + 0x80,
-					   priv->hist_data[i].link[j].txpower,
-					   priv->hist_data[i].link[j].rssi);
-				break;
-			default:
-				if (j < MAX_BT_LINK)
-					seq_printf(sfp,
-						   "BT link[%d]: TxPower=%d dBm, TxRx Rate=(%d), RSSI=%d dBm\n",
-						   j + 1,
-						   priv->hist_data[i].link[j].
-						   txpower,
-						   priv->hist_data[i].link[j].
-						   txrxrate,
-						   priv->hist_data[i].link[j].
-						   rssi);
-				else
-					seq_printf(sfp,
-						   "BLE link[%d]: TxPower=%d dBm, TxRx Rate=(%d), RSSI=%d dBm\n",
-						   j - MAX_BT_LINK + 0x80,
-						   priv->hist_data[i].link[j].
-						   txpower,
-						   priv->hist_data[i].link[j].
-						   txrxrate,
-						   priv->hist_data[i].link[j].
-						   rssi);
-				break;
-			}
-		}
-		seq_printf(sfp, "\n");
-	}
-	LEAVE();
-	return 0;
-}
-
-/**
- *  @brief Proc open function for histogram
- *
- *  @param inode     A pointer to inode structure
- *  @param file		 A pointer to file structure
- *
- *  @return        Number of output data or MLAN_STATUS_FAILURE
- */
-static int
-bt_histogram_proc_open(struct inode *inode, struct file *file)
-{
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 10, 0)
-	return single_open(file, bt_histogram_read, PDE_DATA(inode));
-#else
-	return single_open(file, bt_histogram_read, PDE(inode)->data);
-#endif
-}
-
-/** Histogram proc fops */
-static const struct file_operations histogram_proc_fops = {
-	.owner = THIS_MODULE,
-	.open = bt_histogram_proc_open,
-	.read = seq_read,
-	.llseek = seq_lseek,
-	.release = single_release,
-};
-
-/**
  *  @brief This function initializes proc entry
  *
  *  @param priv     A pointer to bt_private structure
@@ -653,10 +522,9 @@ bt_proc_init(bt_private *priv, struct m_dev *m_dev, int seq)
 	int ret = BT_STATUS_SUCCESS;
 	struct proc_dir_entry *entry;
 	int i, j;
-	char hist_entry[50];
-
 	ENTER();
 
+	bpriv = priv;
 	memset(cmd52_string, 0, CMD52_STR_LEN);
 	if (proc_mbt) {
 		priv->dev_proc[seq].proc_entry =
@@ -666,41 +534,6 @@ bt_proc_init(bt_private *priv, struct m_dev *m_dev, int seq)
 			ret = BT_STATUS_FAILURE;
 			goto done;
 		}
-		priv->dev_proc[seq].hist_entry =
-			proc_mkdir("histogram", priv->dev_proc[seq].proc_entry);
-		if (!priv->dev_proc[seq].hist_entry) {
-			PRINTM(ERROR, "BT: Could not mkdir histogram!\n");
-			ret = BT_STATUS_FAILURE;
-			goto done;
-		}
-		for (i = 0; i < MAX_ANTENNA_NUM; i++) {
-			priv->hist_proc[i].antenna = i;
-			priv->hist_proc[i].pbt = priv;
-			snprintf(hist_entry, sizeof(hist_entry), "bt-ant%d", i);
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 26)
-			entry = proc_create_data(hist_entry, 0644,
-						 priv->dev_proc[seq].hist_entry,
-						 &histogram_proc_fops,
-						 &priv->hist_proc[i]);
-			if (entry == NULL)
-#else
-			entry = create_proc_entry(hist_entry, 0644,
-						  priv->dev_proc[seq].
-						  hist_entry);
-			if (entry) {
-				entry->data = &priv->hist_proc[i];
-				entry->proc_fops = &histogram_proc_fops;
-			} else
-#endif
-			{
-				PRINTM(MSG,
-				       "Fail to create histogram proc %s\n",
-				       hist_entry);
-				ret = BT_STATUS_FAILURE;
-				goto done;
-			}
-		}
-
 		priv->dev_proc[seq].pfiles =
 			kmalloc(sizeof(proc_files), GFP_ATOMIC);
 		if (!priv->dev_proc[seq].pfiles) {
@@ -807,8 +640,6 @@ void
 bt_proc_remove(bt_private *priv)
 {
 	int j, i;
-	char hist_entry[50];
-
 	ENTER();
 	PRINTM(INFO, "BT: Remove Proc Interface\n");
 	if (proc_mbt) {
@@ -819,14 +650,7 @@ bt_proc_remove(bt_private *priv)
 				remove_proc_entry(proc_files[j].name,
 						  priv->dev_proc[i].proc_entry);
 			}
-			for (j = 0; j < MAX_ANTENNA_NUM; j++) {
-				snprintf(hist_entry, sizeof(hist_entry),
-					 "bt-ant%d", j);
-				remove_proc_entry(hist_entry,
-						  priv->dev_proc[i].hist_entry);
-			}
-			remove_proc_entry("histogram",
-					  priv->dev_proc[i].proc_entry);
+
 			remove_proc_entry(priv->bt_dev.m_dev[i].name, proc_mbt);
 			priv->dev_proc[i].proc_entry = NULL;
 

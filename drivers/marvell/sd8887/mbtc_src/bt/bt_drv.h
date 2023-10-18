@@ -2,7 +2,7 @@
  *  @brief This header file contains global constant/enum definitions,
  *  global variable declaration.
  *
- *  Copyright (C) 2007-2015, Marvell International Ltd.
+ *  Copyright (C) 2007-2018, Marvell International Ltd.
  *
  *  This software file (the "File") is distributed by Marvell International
  *  Ltd. under the terms of the GNU General Public License Version 2, June 1991
@@ -29,6 +29,9 @@
 
 #include "hci_wrapper.h"
 
+/** MAX adapter BT driver supported */
+#define MAX_BT_ADAPTER    3
+
 #ifndef BIT
 /** BIT definition */
 #define BIT(x) (1UL << (x))
@@ -40,20 +43,18 @@ typedef u64 t_ptr;
 typedef u32 t_ptr;
 #endif
 
+/** max number of adapter supported */
+#define MAX_BT_ADAPTER      3
 /** Define drv_mode bit */
 #define DRV_MODE_BT         BIT(0)
-#define DRV_MODE_FM        BIT(1)
-#define DRV_MODE_NFC       BIT(2)
 
 /** Define devFeature bit */
 #define DEV_FEATURE_BT     BIT(0)
 #define DEV_FEATURE_BTAMP     BIT(1)
 #define DEV_FEATURE_BLE     BIT(2)
-#define DEV_FEATURE_FM     BIT(3)
-#define DEV_FEATURE_NFC     BIT(4)
 
 /** Define maximum number of radio func supported */
-#define MAX_RADIO_FUNC     4
+#define MAX_RADIO_FUNC     3
 
 /** MAC address print format */
 #ifndef MACSTR
@@ -165,6 +166,15 @@ extern u32 mbt_drvdbg;
 /** Maximum data dump length */
 #define MAX_DATA_DUMP_LEN	48
 
+/**
+ * @brief Prints buffer data upto provided length
+ *
+ * @param prompt          Char pointer
+ * @param buf			  Buffer
+ * @param len    		  Length
+ *
+ * @return                N/A
+ */
 static inline void
 hexdump(char *prompt, u8 *buf, int len)
 {
@@ -221,6 +231,8 @@ hexdump(char *prompt, u8 *buf, int len)
 #define	BT_UPLD_SIZE				2312
 /** Bluetooth status success */
 #define BT_STATUS_SUCCESS			(0)
+/** Bluetooth status pending */
+#define BT_STATUS_PENDING           (1)
 /** Bluetooth status failure */
 #define BT_STATUS_FAILURE			(-1)
 
@@ -249,6 +261,7 @@ hexdump(char *prompt, u8 *buf, int len)
 	wait_event_interruptible_timeout(waitq, cond, ((timeout) * HZ / 1000))
 #endif
 
+/** bt thread structure */
 typedef struct {
 	/** Task */
 	struct task_struct *task;
@@ -260,6 +273,13 @@ typedef struct {
 	void *priv;
 } bt_thread;
 
+/**
+ * @brief Activates bt thread
+ *
+ * @param thr			  A pointer to bt_thread structure
+ *
+ * @return                N/A
+ */
 static inline void
 bt_activate_thread(bt_thread *thr)
 {
@@ -270,6 +290,13 @@ bt_activate_thread(bt_thread *thr)
 	thr->pid = current->pid;
 }
 
+/**
+ * @brief De-activates bt thread
+ *
+ * @param thr			  A pointer to bt_thread structure
+ *
+ * @return                N/A
+ */
 static inline void
 bt_deactivate_thread(bt_thread *thr)
 {
@@ -277,12 +304,28 @@ bt_deactivate_thread(bt_thread *thr)
 	return;
 }
 
+/**
+ * @brief Creates bt thread
+ *
+ * @param btfunc          Function pointer
+ * @param thr			  A pointer to bt_thread structure
+ * @param name    		  Char pointer
+ *
+ * @return                N/A
+ */
 static inline void
 bt_create_thread(int (*btfunc) (void *), bt_thread *thr, char *name)
 {
 	thr->task = kthread_run(btfunc, thr, "%s", name);
 }
 
+/**
+ * @brief Delete bt thread
+ *
+ * @param thr			  A pointer to bt_thread structure
+ *
+ * @return                N/A
+ */
 static inline int
 bt_terminate_thread(bt_thread *thr)
 {
@@ -294,6 +337,13 @@ bt_terminate_thread(bt_thread *thr)
 	return 0;
 }
 
+/**
+ * @brief  Set scheduled timeout
+ *
+ * @param millisec		 Time unit in ms
+ *
+ * @return                N/A
+ */
 static inline void
 os_sched_timeout(u32 millisec)
 {
@@ -310,6 +360,49 @@ os_sched_timeout(u32 millisec)
 #define __ATTRIB_PACK__ __attribute__((packed))
 #endif
 
+/** BT histogram command */
+#define BT_CMD_HISTOGRAM            0xEA
+/** max antenna num */
+#define MAX_ANTENNA_NUM             2
+/** BDR 1M */
+#define BDR_RATE_1M					1
+/** EDR 2/3 M */
+#define EDR_RATE_2_3M			    2
+/** BLE 1M */
+#define BLE_RATE_1M                 5
+/** max bt link number */
+#define MAX_BT_LINK                 10
+/** max ble link number */
+#define MAX_BLE_LINK                16
+
+/** BT link state structure */
+typedef struct _bt_link_stat {
+    /** txrx rate 1: BDR_1M, 2:EDR 2/3 M, 3:BLE 1M */
+	u8 txrxrate;
+    /** power: -30 = N = 20 dbm*/
+	s8 txpower;
+    /** rssi: -127 to +20 (For BT), -128 to +127 (For BLE) */
+	s8 rssi;
+} __ATTRIB_PACK__ bt_link_stat;
+
+/** BT histogram data structure */
+typedef struct _bt_histogram_data {
+	/** Antenna */
+	u8 antenna;
+	/** Powerclass */
+	u8 powerclass;
+	/** bt link state structure */
+	bt_link_stat link[MAX_BT_LINK + MAX_BLE_LINK];
+} __ATTRIB_PACK__ bt_histogram_data;
+
+/** BT histogram proc data structure */
+typedef struct _bt_hist_proc_data {
+    /** antenna */
+	u8 antenna;
+	/** Private structure */
+	struct _bt_private *pbt;
+} bt_hist_proc_data;
+
 /** Data structure for the Marvell Bluetooth device */
 typedef struct _bt_dev {
 	/** device name */
@@ -318,7 +411,7 @@ typedef struct _bt_dev {
 	void *card;
 	/** IO port */
 	u32 ioport;
-
+	/** m_dev structure */
 	struct m_dev m_dev[MAX_RADIO_FUNC];
 
 	/** Tx download ready flag */
@@ -343,8 +436,8 @@ typedef struct _bt_dev {
 	u8 hscfgcmd;
 	/** Host Send Cmd Flag		 */
 	u8 sendcmdflag;
-	/** ocf for Send Cmd */
-	u16 send_cmd_ocf;
+	/** opcode for Send Cmd */
+	u16 send_cmd_opcode;
 	/** Device Type			*/
 	u8 devType;
 	/** Device Features    */
@@ -363,6 +456,7 @@ typedef struct _bt_dev {
 	u8 test_mode;
 } bt_dev_t, *pbt_dev_t;
 
+/** Marvell bt adapter structure */
 typedef struct _bt_adapter {
 	/** Chip revision ID */
 	u8 chip_rev;
@@ -374,6 +468,9 @@ typedef struct _bt_adapter {
 	u32 IntCounter;
 	/** Tx packet queue */
 	struct sk_buff_head tx_queue;
+
+	/** Pointer of fw dump file name */
+	char *fwdump_fname;
 	/** Pending Tx packet queue */
 	struct sk_buff_head pending_queue;
 	/** tx lock flag */
@@ -402,6 +499,10 @@ typedef struct _bt_adapter {
 	u8 irq_done;
 	/** sdio int status */
 	u8 sd_ireg;
+     /** buf allocated for transmit */
+	u8 *tx_buffer;
+    /** buf for transmit */
+	u8 *tx_buf;
     /** buf allocated for read interrupt status */
 	u8 *hw_regs_buf;
     /** buf for read interrupt status */
@@ -419,6 +520,7 @@ typedef struct _bt_adapter {
 /** Length of prov name */
 #define PROC_NAME_LEN				32
 
+/** Item data structure */
 struct item_data {
 	/** Name */
 	char name[PROC_NAME_LEN];
@@ -432,6 +534,7 @@ struct item_data {
 	u32 flag;
 };
 
+/** Proc private data structure */
 struct proc_private_data {
 	/** Name */
 	char name[PROC_NAME_LEN];
@@ -449,9 +552,12 @@ struct proc_private_data {
 	const struct file_operations *fops;
 };
 
+/** Device proc structure */
 struct device_proc {
 	/** Proc directory entry */
 	struct proc_dir_entry *proc_entry;
+    /** proc entry for hist */
+	struct proc_dir_entry *hist_entry;
 	/** num of proc files */
 	u8 num_proc_files;
 	/** pointer to proc_private_data */
@@ -488,16 +594,17 @@ typedef struct _bt_private {
 	ulong driver_flags;
 	/** Driver reference flags */
 	struct kobject kobj;
-	/** CRC check flag */
-	u16 fw_crc_check;
-	/** Card type */
-	u16 card_type;
-	/** sdio device */
-	const struct sdio_device *psdio_device;
-	int debug_device_pending;
-	int debug_ocf_ogf[2];
-	u8 fw_reload;
+	/* hist_data_len */
+	u8 hist_data_len;
+    /** hist data */
+	bt_histogram_data hist_data[MAX_ANTENNA_NUM];
+    /** hist proc data */
+	bt_hist_proc_data hist_proc[MAX_ANTENNA_NUM];
+    /** fw dump state */
+	u8 fw_dump;
 } bt_private, *pbt_private;
+
+int bt_get_histogram(bt_private *priv);
 
 /** Disable interrupt */
 #define OS_INT_DISABLE	spin_lock_irqsave(&priv->driver_lock, \
@@ -515,10 +622,6 @@ typedef struct _bt_private {
 #define DEV_TYPE_BT		0x00
 /** Device type of AMP */
 #define DEV_TYPE_AMP		0x01
-/** Device type of FM */
-#define DEV_TYPE_FM		0x02
-/** Device type of NFC */
-#define DEV_TYPE_NFC		0x04
 
 /** Marvell vendor packet */
 #define MRVL_VENDOR_PKT			0xFE
@@ -533,6 +636,7 @@ typedef struct _bt_private {
 #define BT_CMD_HOST_SLEEP_ENABLE	0x5A
 /** Bluetooth command : Module Configuration request */
 #define BT_CMD_MODULE_CFG_REQ		0x5B
+
 /** Bluetooth command : SDIO pull up down configuration request */
 #define BT_CMD_SDIO_PULL_CFG_REQ	0x69
 /** Bluetooth command : Set Evt Filter Command */
@@ -541,20 +645,6 @@ typedef struct _bt_private {
 #define BT_CMD_ENABLE_WRITE_SCAN	0x1A
 /** Bluetooth command : Enable Device under test mode */
 #define BT_CMD_ENABLE_DEVICE_TESTMODE	0x03
-#ifdef SDIO_SUSPEND_RESUME
-/* FM default event interrupt mask
-		bit[0], RSSI low
-		bit[1], New RDS data
-		bit[2], RSSI indication */
-#define FM_DEFAULT_INTR_MASK    0x07
-/** Disable FM event interrupt mask */
-#define FM_DISABLE_INTR_MASK    0x00
-/** FM set event interrupt mask command */
-#define FM_SET_INTR_MASK	0x2E
-/** FM ocf value */
-#define FM_CMD			    0x0280
-int fm_set_intr_mask(bt_private *priv, u32 mask);
-#endif
 /** Sub Command: Module Bring Up Request */
 #define MODULE_BRINGUP_REQ		0xF1
 /** Sub Command: Module Shut Down Request */
@@ -624,7 +714,7 @@ int fm_set_intr_mask(bt_private *priv, u32 mask);
 
 /** The number of times to try when waiting for downloaded firmware to
     become active when multiple interface is present */
-#define MAX_MULTI_INTERFACE_POLL_TRIES  1000
+#define MAX_MULTI_INTERFACE_POLL_TRIES  150
 
 /** The number of times to try when waiting for downloaded firmware to
      become active. (polling the scratch register). */
@@ -635,23 +725,32 @@ int fm_set_intr_mask(bt_private *priv, u32 mask);
 
 #define BT_CMD_HEADER_SIZE    3
 
+#define BT_CMD_DATA_LEN    128
+#define BT_EVT_DATA_LEN    8
+
+/** BT command structure */
 typedef struct _BT_CMD {
 	/** OCF OGF */
 	u16 ocf_ogf;
 	/** Length */
 	u8 length;
 	/** Data */
-	u8 data[128];
+	u8 data[BT_CMD_DATA_LEN];
 } __ATTRIB_PACK__ BT_CMD;
 
+/** BT event structure */
 typedef struct _BT_EVENT {
 	/** Event Counter */
 	u8 EC;
 	/** Length */
 	u8 length;
 	/** Data */
-	u8 data[8];
+	u8 data[BT_EVT_DATA_LEN];
 } BT_EVENT;
+
+#if defined(SDIO_SUSPEND_RESUME)
+#define DEF_GPIO_GAP        0xffff
+#endif
 
 /** This function verify the received event pkt */
 int check_evtpkt(bt_private *priv, struct sk_buff *skb);
@@ -685,6 +784,9 @@ int bt_enable_hs(bt_private *priv);
 int bt_prepare_command(bt_private *priv);
 /** This function frees the structure of adapter */
 void bt_free_adapter(bt_private *priv);
+/** This function handle the receive packet */
+void bt_recv_frame(bt_private *priv, struct sk_buff *skb);
+void bt_store_firmware_dump(bt_private *priv, u8 *buf, u32 len);
 
 /** clean up m_devs */
 void clean_up_m_devs(bt_private *priv);
@@ -707,16 +809,24 @@ int sbi_register_conf_dpc(bt_private *priv);
 int sbi_host_to_card(bt_private *priv, u8 *payload, u16 nb);
 /** This function reads the current interrupt status register */
 int sbi_get_int_status(bt_private *priv);
-
 /** This function enables the host interrupts */
-int sd_enable_host_int(bt_private *priv);
+int sbi_enable_host_int(bt_private *priv);
 /** This function disables the host interrupts */
-int sd_disable_host_int(bt_private *priv);
-/** This function reload firmware */
-void bt_request_fw_reload(bt_private *priv);
+int sbi_disable_host_int(bt_private *priv);
+
+#define MAX_TX_BUF_SIZE     2312
 /** This function downloads firmware image to the card */
 int sd_download_firmware_w_helper(bt_private *priv);
 void bt_dump_sdio_regs(bt_private *priv);
+#define FW_DUMP_TYPE_ENDED                    0x002
+#define FW_DUMP_TYPE_MEM_ITCM                 0x004
+#define FW_DUMP_TYPE_MEM_DTCM                 0x005
+#define FW_DUMP_TYPE_MEM_SQRAM                0x006
+#define FW_DUMP_TYPE_MEM_IRAM                 0x007
+#define FW_DUMP_TYPE_REG_MAC                  0x009
+#define FW_DUMP_TYPE_REG_CIU                  0x00E
+#define FW_DUMP_TYPE_REG_APU                  0x00F
+#define FW_DUMP_TYPE_REG_ICU                  0x014
 /* dumps the firmware to /var/ or /data/ */
 void bt_dump_firmware_info_v2(bt_private *priv);
 
@@ -739,6 +849,7 @@ void bt_dump_firmware_info_v2(bt_private *priv);
 /** Bluetooth command : BLE deepsleep */
 #define BT_CMD_BLE_DEEP_SLEEP       0x8b
 
+/** BT_BLE command structure */
 typedef struct _BT_BLE_CMD {
 	/** OCF OGF */
 	u16 ocf_ogf;
@@ -748,6 +859,7 @@ typedef struct _BT_BLE_CMD {
 	u8 deepsleep;
 } __ATTRIB_PACK__ BT_BLE_CMD;
 
+/** BT_CSU command structure */
 typedef struct _BT_CSU_CMD {
 	/** OCF OGF */
 	u16 ocf_ogf;
@@ -777,6 +889,7 @@ int bt_cal_config(bt_private *priv, char *cfg_file, char *mac);
 int bt_cal_config_ext(bt_private *priv, char *cfg_file);
 int bt_init_mac_address(bt_private *priv, char *mac);
 
+/** BT HCI command structure */
 typedef struct _BT_HCI_CMD {
 	/** OCF OGF */
 	u16 ocf_ogf;
