@@ -102,6 +102,8 @@ ENDPROC(ret_from_fork)
  * which is the value the rest of the system sees
  */
 .ifne NR_syscalls - __NR_syscalls
+.error __NR_syscalls
+.error NR_syscalls
 .error "__NR_syscalls is not equal to the size of the syscall table"
 .endif
 
