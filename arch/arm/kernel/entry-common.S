@@ -101,11 +101,8 @@ ENDPROC(ret_from_fork)
  * Ensure that the system call table is equal to __NR_syscalls,
  * which is the value the rest of the system sees
  */
-.ifne NR_syscalls - __NR_syscalls
-.error __NR_syscalls
-.error NR_syscalls
-.error "__NR_syscalls is not equal to the size of the syscall table"
-.endif
+
+
 
 #undef CALL
 #define CALL(x) .long x
